@@ -277,44 +277,44 @@ def get_effective_path(file):
             print("ERROR: unfederated file declared for federated resource {} ({}): {}"
                   .format(resource.short_id, resource.resource_type, file_resource_file_name))
             # none of these have been found in the database; no action need be taken
-        else:
-            if path.startswith(resource.short_id):
-                # fully qualified unfederated name
-                try:
-                    folder, base = path_is_acceptable(file, path, test_exists=True)
-                    inferred_path = path  # The above step checks that it is correct
-                except ValidationError:
-                    print("ERROR: existing path {} is not conformant for {} ({})"
-                          .format(path, resource.short_id, resource.resource_type))
-                print("Found unfederated path {}".format(inferred_path))
+        elif path.startswith(file_path(resource)):
+            # fully qualified unfederated name
+            try:
+                folder, base = path_is_acceptable(file, path, test_exists=True)
+                inferred_path = path  # The above step checks that it is correct
+            except ValidationError:
+                print("ERROR: existing path {} is not conformant for {} ({})"
+                      .format(path, resource.short_id, resource.resource_type))
+            # print("Found unfederated path {}".format(inferred_path))
 
-            elif path.startswith("data/contents/"):  # partially qualified path
+        else:  # not fully qualified, for whatever reason. Strip headers and qualify
+            if path.startswith("data/contents/"):  # partially qualified path
                 # strip data/contents from name
                 print("INFO stripping data/contents/ from unfederated path {}".format(path))
                 plen = len("data/contents/")
                 path = path[plen:]
-                print("INFO result is {}".format(path))
+                # print("INFO result is {}".format(path))
 
             # unqualified unfederated name
             folder, base = os.path.split(path)
             if folder == "":
                 folder = None
-            if folder is not None and folder != file_file_folder:
-                print("ERROR: inferred folder {} != folder of record {}, using folder of record"
-                      .format(folder, file_file_folder))
-            print("INFO: Assuming folder is {}".format(str(file_file_folder)))
+            if folder is not None and file_file_folder != folder:
+                print("WARNING: declared folder {} is not path folder {} for {} ({})"
+                      .format(str(file_file_folder), str(folder), resource.short_id,
+                              resource.resource_type))
+                print("INFO: Assuming folder is {}".format(str(file_file_folder)))
 
             if file_file_folder is None:
                 inferred_path = get_path_from_short_path(file, base, test_exists=True)
-                print("INFO: found unqualified unfederated name '{}' qualified to '{}'"
-                      .format(path, inferred_path))
             else:
                 inferred_path = get_path_from_short_path(file,
                                                          os.path.join(file_file_folder, base),
                                                          test_exists=True)
-                print("INFO: found unqualified unfederated name '{}' with folder {}" +
-                      " qualified to '{}'"
-                      .format(path, file_file_folder, inferred_path))
+            # if we get here, we have a valid existing inferred path
+            print("INFO: found unqualified unfederated name '{}' with folder {}" +
+                  " qualified to '{}'"
+                  .format(path, str(file_file_folder), inferred_path))
 
     if file_fed_resource_file_name is not None:
         path = file_fed_resource_file_name
@@ -324,11 +324,14 @@ def get_effective_path(file):
             # no action taken
         if path.startswith(file_path(resource)):
             # fully qualified federated name
-            print("INFO: found fully qualified federated name '{}'".format(path))
+            # print("INFO: found fully qualified federated name '{}'".format(path))
             try:
                 folder, base = path_is_acceptable(file, path, test_exists=True)
+                # At this point, path exists
                 inferred_path = path
-                if file_file_folder != folder:
+                if folder == "":
+                    folder = None
+                if folder is not None and file_file_folder != folder:
                     print("WARNING: declared folder {} is not path folder {} for {} ({})"
                           .format(str(file_file_folder), str(folder), resource.short_id,
                                   resource.resource_type))
@@ -345,31 +348,30 @@ def get_effective_path(file):
             print("ERROR: non-conformant full path {} for federated resource {} ({})"
                   .format(path, resource.short_id, resource.resource_type))
             # no instances so far.
-        elif path.startswith("data/contents/"):
-            print("WARNING: path {} starts with extra data header for {} ({})"
-                  .format(path, resource.short_id, resource.resource_type))
-            # strip header
-            plen = len("data/contents/")
-            path = path[plen:]
-
-        # next thing should be folder
-        folder, base = os.path.split(path)
-        if folder is not None and folder != file_file_folder:
-            print("ERROR: inferred folder {} != folder of record {}, using folder of record"
-                  .format(folder, file_file_folder))
-        print("INFO: Assuming folder is {}".format(str(file_file_folder)))
-
-        # set fully qualified path
-        if file_file_folder is None:
-            inferred_path = get_path_from_short_path(file, base)
-            print("found unqualified federated path '{}' qualified to '{}'"
-                  .format(path, inferred_path))
         else:
-            inferred_path = get_path_from_short_path(file,
-                                                     os.path.join(file_file_folder, base))
+            if path.startswith("data/contents/"):
+                print("WARNING: path {} starts with extra data header for {} ({})"
+                      .format(path, resource.short_id, resource.resource_type))
+                # strip header
+                plen = len("data/contents/")
+                path = path[plen:]
+
+            # next thing should be folder
+            folder, base = os.path.split(path)
+            if folder is not None and folder != file_file_folder:
+                print("ERROR: inferred folder {} != folder of record {}, using folder of record"
+                      .format(folder, file_file_folder))
+            print("INFO: Assuming folder is {}".format(str(file_file_folder)))
+
+            # set fully qualified path
+            if file_file_folder is None:
+                inferred_path = get_path_from_short_path(file, base)
+            else:
+                inferred_path = get_path_from_short_path(file,
+                                                         os.path.join(file_file_folder, base))
             print("found unqualified federated name '{}'" +
                   " with folder '{}' qualified to '{}'"
-                  .format(path, file_file_folder, inferred_path))
+                  .format(path, str(file_file_folder), inferred_path))
 
     elif file_fed_resource_file_name_or_path is not None:
         path = file_fed_resource_file_name_or_path
@@ -395,7 +397,8 @@ def get_effective_path(file):
         if not istorage.exists(inferred_path):
             print("ERROR: inferred path '{}' does not exist".format(inferred_path))
         else:
-            print("INFO: inferred path '{}' exists".format(inferred_path))
+            pass
+            # print("INFO: inferred path '{}' exists".format(inferred_path))
 
     if inferred_path is None:
         print("ERROR: no valid file name defined for {} ({})"
@@ -451,7 +454,7 @@ def resource_check_irods_files(self, stop_on_error=False, log_errors=True,
                     raise ValidationError(msg)
 
         # Step 2: does every iRODS file correspond to a record in files?
-        error2, ecount2 = __resource_check_irods_directory(self, self.file_path, logger,
+        error2, ecount2 = __resource_check_irods_directory(self, file_path(self), logger,
                                                            all_paths,
                                                            stop_on_error=stop_on_error,
                                                            log_errors=log_errors,
@@ -572,7 +575,7 @@ class Command(BaseCommand):
                     print(msg)
 
                 print("LOOKING FOR ERRORS FOR RESOURCE {}".format(rid))
-                resource.check_irods_files(stop_on_error=False,
+                resource_check_irods_files(resource, stop_on_error=False,
                                            echo_errors=not options['log'],
                                            log_errors=options['log'],
                                            return_errors=False)
@@ -580,7 +583,7 @@ class Command(BaseCommand):
         else:  # check all resources
             print("LOOKING FOR ERRORS FOR ALL RESOURCES")
             for r in BaseResource.objects.all():
-                r.check_irods_files(stop_on_error=False,
-                                    echo_errors=not options['log'],  # Don't both log and echo
-                                    log_errors=options['log'],
-                                    return_errors=False)
+                resource_check_irods_files(r, stop_on_error=False,
+                                           echo_errors=not options['log'],
+                                           log_errors=options['log'],
+                                           return_errors=False)
