@@ -265,6 +265,7 @@ def get_effective_path(file):
 
     # if I find the proper path, this is set.
     inferred_path = None
+    orig_path = None
 
     # go through the options for defining a file
     # check that the file is defined properly according to one of these.
@@ -272,6 +273,7 @@ def get_effective_path(file):
     # part 1: unfederated name can be qualified in several ways
     if file_resource_file_name is not None:
         path = file_resource_file_name
+        orig_path = path
         # it is an error for the file to differ from the declared kind of resource
         if is_federated(resource):
             print("ERROR: unfederated file declared for federated resource {} ({}): {}"
@@ -318,6 +320,7 @@ def get_effective_path(file):
 
     if file_fed_resource_file_name is not None:
         path = file_fed_resource_file_name
+        orig_path = path
         if not is_federated(resource):
             print("ERROR: federated file declared for unfederated resource {} ({}): {}"
                   .format(resource.short_id, resource.resource_type, path))
@@ -375,6 +378,7 @@ def get_effective_path(file):
 
     elif file_fed_resource_file_name_or_path is not None:
         path = file_fed_resource_file_name_or_path
+        orig_path = path
         if not is_federated(resource):
             print("WARNING: federated file name or path" +
                   " declared for unfederated resource {} ({}): {}"
@@ -404,7 +408,7 @@ def get_effective_path(file):
         print("ERROR: no valid file name defined for {} ({})"
               .format(resource.short_id, resource.resource_type))
 
-    return inferred_path
+    return inferred_path, file_file_folder, orig_path
 
 
 def resource_check_irods_files(self, stop_on_error=False, log_errors=True,
@@ -437,13 +441,13 @@ def resource_check_irods_files(self, stop_on_error=False, log_errors=True,
         all_paths = {}
         # Step 1: does every file here refer to an existing file in iRODS?
         for f in self.files.all():
-            path = get_effective_path(f)
+            path, folder, orig = get_effective_path(f)
             if path is not None:
                 all_paths[path] = 1  # all_paths is utilized as set
             if path is None or not istorage.exists(path):
                 ecount += 1
-                msg = "check_irods_files: django file {} does not exist in iRODS"\
-                    .format(path)
+                msg = ("check_irods_files: django file {} in folder {}," +
+                       " resolved to {}, does not exist in iRODS").format(orig, folder, path)
                 if echo_errors:
                     print(msg)
                 if log_errors:
