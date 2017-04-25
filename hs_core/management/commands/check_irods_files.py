@@ -464,8 +464,26 @@ def resource_check_irods_files(self, stop_on_error=False, log_errors=True,
                                                            log_errors=log_errors,
                                                            echo_errors=echo_errors,
                                                            return_errors=return_errors)
+        # TODO: At this point, errors contains reports of Django files that don't exist in iRODS, 
+        # TODO: while errors2 contains iRODS files that don't exist in Django.
+        # Here is where corrections would be made 
         errors.extend(error2)
         ecount += ecount2
+
+    # Step 3: does resource exist at all? 
+    if is_federated(self): 
+        rpath = os.path.join(self.resource_federation_path, self.short_id) 
+    else: 
+        rpath = self.short_id 
+    if not istorage.exists(rpath): 
+        ecount += 1
+        msg = "iRODS directory for resource {} does not exist at all".format(self.short_id) 
+        if echo_errors:
+            print(msg)
+        if log_errors:
+            logger.error(msg)
+        if return_errors:
+            errors.append(msg)
 
     if ecount > 0:  # print information about the affected resource (not really an error)
         msg = "check_irods_files: affected resource {} type is {}, title is '{}'"\
