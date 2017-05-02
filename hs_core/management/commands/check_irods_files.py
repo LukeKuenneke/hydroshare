@@ -230,6 +230,7 @@ def get_effective_path(file):
     Return the storage path found for a file.
     """
     resource = file.resource
+    istorage = get_irods_storage(resource)
 
     # First, normalize state of each potential file name.
     # In some cases, the word "None" was used instead of the symbol None!
@@ -308,15 +309,18 @@ def get_effective_path(file):
                 print("INFO: Assuming folder is {}".format(str(file_file_folder)))
 
             if file_file_folder is None:
-                inferred_path = get_path_from_short_path(file, base, test_exists=True)
+                inferred_path = get_path_from_short_path(file, base, test_exists=False)
             else:
                 inferred_path = get_path_from_short_path(file,
                                                          os.path.join(file_file_folder, base),
-                                                         test_exists=True)
-            # if we get here, we have a valid existing inferred path
-            print("INFO: found unqualified unfederated name '{}' with folder {}" +
-                  " qualified to '{}'"
-                  .format(path, str(file_file_folder), inferred_path))
+                                                         test_exists=False)
+            # if we get here, we have a valid inferred path
+            if not istorage.exists(inferred_path):
+                print("ERROR: inferred path {} does not exist".format(inferred_path))
+            else:
+                print("INFO: found unqualified unfederated name '{}' with folder {}" +
+                      " qualified to '{}'"
+                      .format(path, str(file_file_folder), inferred_path))
 
     if file_fed_resource_file_name is not None:
         path = file_fed_resource_file_name
@@ -368,13 +372,18 @@ def get_effective_path(file):
 
             # set fully qualified path
             if file_file_folder is None:
-                inferred_path = get_path_from_short_path(file, base)
+                inferred_path = get_path_from_short_path(file, base, test_exists=False)
             else:
                 inferred_path = get_path_from_short_path(file,
-                                                         os.path.join(file_file_folder, base))
-            print("found unqualified federated name '{}'" +
-                  " with folder '{}' qualified to '{}'"
-                  .format(path, str(file_file_folder), inferred_path))
+                                                         os.path.join(file_file_folder, base),
+                                                         test_exists=False)
+            # if we get here, we have a valid inferred path
+            if not istorage.exists(inferred_path):
+                print("ERROR: inferred path {} does not exist".format(inferred_path))
+            else:
+                print("INFO: found unqualified federated name '{}'" +
+                      " with folder '{}' qualified to '{}'"
+                      .format(path, str(file_file_folder), inferred_path))
 
     elif file_fed_resource_file_name_or_path is not None:
         path = file_fed_resource_file_name_or_path
@@ -389,9 +398,9 @@ def get_effective_path(file):
             print("INFO: data/contents/ stripped from fed name or path: {} for {} ({})"
                   .format(path, resource.short_id, resource.resource_type))
         if path.startswith(file_path(resource)):
-            inferred_path = get_path_from_storage_path(file, path)
+            inferred_path = get_path_from_storage_path(file, path, test_exists=False)
         else:
-            inferred_path = get_path_from_short_path(file, path)
+            inferred_path = get_path_from_short_path(file, path, test_exists=False)
 
     if inferred_path is not None:
         # This existence test is fouled up by a mangled resource name.
@@ -426,6 +435,14 @@ def resource_check_irods_files(self, stop_on_error=False, log_errors=True,
     istorage = get_irods_storage(self)
     errors = []
     ecount = 0
+
+    if is_federated(self):
+        msg = "check_irods_files: federation prefix is {}"\
+            .format(self.resource_federation_path)
+        if echo_errors:
+            print(msg)
+        if log_errors:
+            logger.info(msg)
 
     # skip federated resources if not configured to handle these
     if is_federated(self) and not settings.REMOTE_USE_IRODS:
@@ -464,20 +481,20 @@ def resource_check_irods_files(self, stop_on_error=False, log_errors=True,
                                                            log_errors=log_errors,
                                                            echo_errors=echo_errors,
                                                            return_errors=return_errors)
-        # TODO: At this point, errors contains reports of Django files that don't exist in iRODS, 
+        # TODO: At this point, errors contains reports of Django files that don't exist in iRODS,
         # TODO: while errors2 contains iRODS files that don't exist in Django.
-        # Here is where corrections would be made 
+        # Here is where corrections would be made
         errors.extend(error2)
         ecount += ecount2
 
-    # Step 3: does resource exist at all? 
-    if is_federated(self): 
-        rpath = os.path.join(self.resource_federation_path, self.short_id) 
-    else: 
-        rpath = self.short_id 
-    if not istorage.exists(rpath): 
+    # Step 3: does resource exist at all?
+    if is_federated(self):
+        rpath = os.path.join(self.resource_federation_path, self.short_id)
+    else:
+        rpath = self.short_id
+    if not istorage.exists(rpath):
         ecount += 1
-        msg = "iRODS directory for resource {} does not exist at all".format(self.short_id) 
+        msg = "iRODS directory for resource {} does not exist at all".format(self.short_id)
         if echo_errors:
             print(msg)
         if log_errors:
@@ -556,6 +573,42 @@ def __resource_check_irods_directory(self, dir, logger, all_paths,
 
     return errors, ecount  # empty unless return_errors=True
 
+
+def resource_dump(resource):
+    """ dump the status of a resource to stdout """
+    print("contents of {}".format(resource.short_id))
+    print("According to Django:")
+    print(" resource_federation_path is {}", str(resource.resource_federation_path))
+    print(" Files are:")
+    for f in resource.files.all():
+        print("  f.resource_file.name is {}".format(str(f.resource_file.name)))
+        print("  f.fed_resource_file.name is {}".format(str(f.fed_resource_file.name)))
+        print("  f.fed_resource_file_name_or_path is {}"
+              .format(str(f.fed_resource_file_name_or_path)))
+    print("According to iRODS, files are:")
+    istorage = get_irods_storage(resource)
+    resource_list(istorage, os.path.join(root_path(resource), 'data', 'contents'), depth=1)
+
+
+def resource_list(istorage, path, depth=0):
+    """ recursively list all files in resource """
+    prefix = ""
+    for i in range(depth):
+        prefix += " "
+    try:
+        contents = istorage.listdir(path)
+        print("{}{}: (directory)".format(prefix, path))
+        for f in contents[1]:  # files
+            print("{} {} (file)".format(prefix, f))
+        for f in contents[0]:  # directories
+            resource_list(istorage, os.path.join(path, f), depth + 1)
+
+    except SessionException as ex:
+        print("{}{}: (directory CANNOT BE LISTED)".format(prefix, path))
+        print("{}stdout: {}".format(prefix, ex.stdout))
+        print("{}stderr: {}".format(prefix, ex.stderr))
+
+
 # -*- coding: utf-8 -*-
 
 """
@@ -597,15 +650,19 @@ class Command(BaseCommand):
                     print(msg)
 
                 print("LOOKING FOR ERRORS FOR RESOURCE {}".format(rid))
-                resource_check_irods_files(resource, stop_on_error=False,
-                                           echo_errors=not options['log'],
-                                           log_errors=options['log'],
-                                           return_errors=False)
+                resource_dump(resource)
+                # resource_check_irods_files(resource, stop_on_error=False,
+                #                            echo_errors=not options['log'],
+                #                            log_errors=options['log'],
+                #                            return_errors=False)
 
         else:  # check all resources
             print("LOOKING FOR ERRORS FOR ALL RESOURCES")
             for r in BaseResource.objects.all():
-                resource_check_irods_files(r, stop_on_error=False,
-                                           echo_errors=not options['log'],
-                                           log_errors=options['log'],
-                                           return_errors=False)
+                istorage = get_irods_storage(r)
+                if not istorage.exists(root_path(r)):
+                    print("ERROR: {} does not exist".format(root_path(r)))
+                # resource_check_irods_files(r, stop_on_error=False,
+                #                            echo_errors=not options['log'],
+                #                            log_errors=options['log'],
+                #                            return_errors=False)
